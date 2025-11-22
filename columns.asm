@@ -127,6 +127,17 @@ ADDR_KBRD:
     pop($t0)
 .end_macro
 
+.macro move_pixel_down_1(%pixel)
+  push($a0)
+  push($a1)
+  move $a0, %pixel
+  addi $a1, $a0, 16
+  jal move_pixel_func
+  pop($a1)
+  pop($a0)
+  
+.end_macro
+
 .macro random_pixel(%reg)
   push($a0)
   move $a0, %reg
@@ -158,6 +169,14 @@ ADDR_KBRD:
   push($t0)
   andi $t0, %pixel, 0xffffff00
   srl $v0, $t0, 8
+  pop($t0)
+.end_macro
+
+.macro is_empty(%pixel)     # (pixel) -> v0: 0 or  x >= 1
+  push($t0)
+  andi $t0, %pixel, 0xffffff00
+  srl $v0, $t0, 8
+  slti $v0, $v0, 1
   pop($t0)
 .end_macro
 
@@ -193,6 +212,14 @@ ADDR_KBRD:
     pop($s2)
 .end_macro
 
+.macro position_equal(%p1, %p2)     # -> v0: bool
+    push($t0)
+    push($t1)
+    andi $t0, %p1, 0xff
+    andi $t1, %p2, 0xff
+    seq $v0, $t1, $t2
+.end_macro
+
 
 	.text
 	.globl main
@@ -201,13 +228,11 @@ ADDR_KBRD:
 main:
 
   jal setup
-  li $a0, 0x00
-  random_pixel($a0)
-  li $a0, 0x05
-  for_n(3, new_triple)
-  if($a0, random_pixel_at)
 
   jal new_triple
+  
+  li $a0, 1
+  jal drop_func
     
   jal exit
 
@@ -226,12 +251,35 @@ drop_func:   #(a0: column [1..6]) -> drops an entire col as far as possible
     save()
     
     addi $t0, $a0, 4
-    addi $s0, $t0, 16   # s0 = y: 1, x: col
-    
+    addi $s0, $t0, 16 
     get_pixel($s0)
+    move $s0, $v0  # s0 = top pixel
+    move $s1, $s0   # s1 = current pixel
+    j check_next_pixel
     
-    return()
-    drop_loop:
+    check_next_pixel:
+        get_pixel($s1)
+        move $s1, $v0   # s1 = current pixel
+        subiu $s2, $s1, 16  # s2 = current sub-pixel
+        is_empty($s1)
+        if($v0, shift_pixels)
+        is_not_empty($s1)
+        if($v0, increment_row)
+    shift_pixels:
+        move_pixel_down_1($s2)
+        position_equal($s0, $s2)
+        if($v0, increment_row)
+        subiu $s2, $s2, 16
+        j shift_pixels
+    increment_row:
+        addi $s1, $s1, 16
+        li $t1, 0xffffff00
+        and $t0, $s1, $t1
+        seq $t2, $t0, $t1
+        if($t2, end_loop)
+        j check_next_pixel
+
+        
         
 
 # Pixel format: RRGGBBYX
@@ -247,6 +295,7 @@ draw_pixel_func:     # ($a0: Pixel) -> stores to bitmap
 
 get_pixel_func:  # ($a0: yx) -> $v0: pixel at that location
     save()
+    andi $a0, $a0, 0x000000ff
     lw $t4, ADDR_DSPL   # bitmap address
     sll $t0, $a0, 2   # yx * 4
     addu $t1, $t0, $t4   # &colour = bitmap addr + yx * 4

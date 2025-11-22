@@ -43,86 +43,62 @@ ADDR_KBRD:
 ##############################################################################
 
 .macro save()
-    addi $sp, $sp, -128
+    addi $sp,$sp,-52
+    sw $a0,0($sp)
+    sw $a1,4($sp)
+    sw $a2,8($sp)
+    sw $a3,12($sp)
+    sw $s0,16($sp)
+    sw $s1,20($sp)
+    sw $s2,24($sp)
+    sw $s3,28($sp)
+    sw $s4,32($sp)
+    sw $s5,36($sp)
+    sw $s6,40($sp)
+    sw $s7,44($sp)
+    sw $fp,48($sp)
+    sw $ra,52($sp)
+.end_macro
 
-    sw $zero,   0($sp)
-    sw $at,     4($sp)
-    sw $a0,    16($sp)
-    sw $a1,    20($sp)
-    sw $a2,    24($sp)
-    sw $a3,    28($sp)
-    sw $t0,    32($sp)
-    sw $t1,    36($sp)
-    sw $t2,    40($sp)
-    sw $t3,    44($sp)
-    sw $t4,    48($sp)
-    sw $t5,    52($sp)
-    sw $t6,    56($sp)
-    sw $t7,    60($sp)
-    sw $s0,    64($sp)
-    sw $s1,    68($sp)
-    sw $s2,    72($sp)
-    sw $s3,    76($sp)
-    sw $s4,    80($sp)
-    sw $s5,    84($sp)
-    sw $s6,    88($sp)
-    sw $s7,    92($sp)
-    sw $t8,    96($sp)
-    sw $t9,   100($sp)
-    sw $k0,   104($sp)
-    sw $k1,   108($sp)
-    sw $gp,   112($sp)
-    sw $sp,   116($sp)
-    sw $fp,   120($sp)
-    sw $ra,   124($sp)
-
-    # hi/lo
-    mfhi $t0
-    mflo $t1
-    sw $t0,   128($sp)
-    sw $t1,   132($sp)
+.macro return_val(%reg)
+    move $v0, %reg
+    lw $a0,0($sp)
+    lw $a1,4($sp)
+    lw $a2,8($sp)
+    lw $a3,12($sp)
+    lw $s0,16($sp)
+    lw $s1,20($sp)
+    lw $s2,24($sp)
+    lw $s3,28($sp)
+    lw $s4,32($sp)
+    lw $s5,36($sp)
+    lw $s6,40($sp)
+    lw $s7,44($sp)
+    lw $fp,48($sp)
+    lw $ra,52($sp)
+    addi $sp,$sp,52
+    jr $ra
 .end_macro
 
 .macro return()
-    lw $t0,   128($sp)
-    lw $t1,   132($sp)
-    mthi $t0
-    mtlo $t1
-
-    lw $zero,   0($sp)
-    lw $at,     4($sp)
-    lw $a0,    16($sp)
-    lw $a1,    20($sp)
-    lw $a2,    24($sp)
-    lw $a3,    28($sp)
-    lw $t0,    32($sp)
-    lw $t1,    36($sp)
-    lw $t2,    40($sp)
-    lw $t3,    44($sp)
-    lw $t4,    48($sp)
-    lw $t5,    52($sp)
-    lw $t6,    56($sp)
-    lw $t7,    60($sp)
-    lw $s0,    64($sp)
-    lw $s1,    68($sp)
-    lw $s2,    72($sp)
-    lw $s3,    76($sp)
-    lw $s4,    80($sp)
-    lw $s5,    84($sp)
-    lw $s6,    88($sp)
-    lw $s7,    92($sp)
-    lw $t8,    96($sp)
-    lw $t9,   100($sp)
-    lw $k0,   104($sp)
-    lw $k1,   108($sp)
-    lw $gp,   112($sp)
-    lw $sp,   116($sp)
-    lw $fp,   120($sp)
-    lw $ra,   124($sp)
-
-    addi $sp, $sp, 128
+    lw $a0,0($sp)
+    lw $a1,4($sp)
+    lw $a2,8($sp)
+    lw $a3,12($sp)
+    lw $s0,16($sp)
+    lw $s1,20($sp)
+    lw $s2,24($sp)
+    lw $s3,28($sp)
+    lw $s4,32($sp)
+    lw $s5,36($sp)
+    lw $s6,40($sp)
+    lw $s7,44($sp)
+    lw $fp,48($sp)
+    lw $ra,52($sp)
+    addi $sp,$sp,52
     jr $ra
 .end_macro
+
 
 .macro push(%reg)
   addi $sp, $sp, -4
@@ -135,35 +111,87 @@ ADDR_KBRD:
 .end_macro
 
 .macro draw_pixel(%pixel)
-  li $a0, %pixel
-  jal draw_pixel_func
+    push($a0)
+    li $a0, %pixel
+    jal draw_pixel_func
+    pop($a0)
+.end_macro
+
+.macro get_pixel(%source)
+    push($t0)
+    push($a0)
+    move $a0, %source
+    jal get_pixel_func
+    move $v0, $t0
+    pop($a0)
+    pop($t0)
 .end_macro
 
 .macro random_pixel(%reg)
+  push($a0)
   move $a0, %reg
   jal random_pixel_at
+  pop($a0)
 .end_macro
 
 .macro random_pixel_i(%pos)
+  push($a0)
   li $a0, %pos
   jal random_pixel_at
+  pop($a0)
 .end_macro
 
-.macro random_num_1_6(%reg)
-  push($a0)
+.macro random_num_1_6()
   push($a1)
-  push($v0)
+  push($a0)
   li $a0, 0
   li $a1, 6
   li $v0, 42
   syscall
-  addi %reg, $a0, 1
+  addi $v0, $a0, 1
   pop($a0)
   pop($a1)
-  pop($v0)
   
 .end_macro
 
+.macro is_not_empty(%pixel)     # (pixel) -> v0: 0 or  x >= 1
+  push($t0)
+  andi $t0, %pixel, 0xffffff00
+  srl $v0, $t0, 8
+  pop($t0)
+.end_macro
+
+.macro if(%cond, %func)
+    blez %cond, skip
+    nop
+    jal %func
+    nop
+    skip:
+.end_macro
+
+.macro for(%n, %func)
+    push($s0)
+    push($s1)
+    move $s0, $zero
+    move $s1, %n
+    loop_block:
+    beq $s0, $s1, finish_loop
+    addiu $s0, $s0, 1
+    nop
+    jal %func
+    nop
+    j loop_block
+    finish_loop:
+    pop($s1)
+    pop($s0)
+.end_macro
+
+.macro for_n(%n, %func)
+    push($s2)
+    li $s2, %n
+    for($s2, %func)
+    pop($s2)
+.end_macro
 
 
 	.text
@@ -173,8 +201,11 @@ ADDR_KBRD:
 main:
 
   jal setup
-
+  li $a0, 0x00
   random_pixel($a0)
+  li $a0, 0x05
+  for_n(3, new_triple)
+  if($a0, random_pixel_at)
 
   jal new_triple
     
@@ -191,8 +222,17 @@ game_loop:
     # 5. Go back to Step 1
     #j game_loop
 
-get_matching_neighbours:   #(a0: pixel) -> matches: a0, a1, a2, a3
-  
+drop_func:   #(a0: column [1..6]) -> drops an entire col as far as possible
+    save()
+    
+    addi $t0, $a0, 4
+    addi $s0, $t0, 16   # s0 = y: 1, x: col
+    
+    get_pixel($s0)
+    
+    return()
+    drop_loop:
+        
 
 # Pixel format: RRGGBBYX
 draw_pixel_func:     # ($a0: Pixel) -> stores to bitmap
@@ -205,7 +245,8 @@ draw_pixel_func:     # ($a0: Pixel) -> stores to bitmap
     sw $t7,0($t6)   #write pixel
     jr $ra
 
-get_pixel_func:  # ($a0: yx) -> pixel at that location into $v0
+get_pixel_func:  # ($a0: yx) -> $v0: pixel at that location
+    save()
     lw $t4, ADDR_DSPL   # bitmap address
     sll $t0, $a0, 2   # yx * 4
     addu $t1, $t0, $t4   # &colour = bitmap addr + yx * 4
@@ -213,7 +254,7 @@ get_pixel_func:  # ($a0: yx) -> pixel at that location into $v0
     sll $t3, $t7, 8   # t3 = *colour << 8
     andi $t5, $a0, 0x000000ff   # t5 = yx
     addu $v0, $t3, $t5   # t7 colour + t5 pos
-    jr $ra
+    return()
 
 move_pixel_func: # ($a0: yx, $a1: y'x') -> Move pixel at a0 to a1
 
@@ -221,29 +262,30 @@ move_pixel_func: # ($a0: yx, $a1: y'x') -> Move pixel at a0 to a1
 
     jal get_pixel_func
     andi $a0, $a0, 0x000000ff
+    move $s0, $v0
     
     jal draw_pixel_func
     
-    andi $t8, $v0, 0xffffff00   # colour
-    andi $t9, $a1, 0x000000ff   # new pos
-    or $a0, $t8, $t9   # combine into new pixel
+    andi $s1, $s0, 0xffffff00   # colour
+    andi $s2, $a1, 0x000000ff   # new pos
+    or $a0, $s2, $s1 # combine into new pixel
     
     jal draw_pixel_func
 
     return()
 
 
-random_pixel_at: # (a0: pos) -> v0: pixel with random color
+random_pixel_at: # (a0: pos) -> t0: pixel with random color
 
   save()
 
   move $t0, $a0 # pos
-  random_num_1_6($t1)
+  random_num_1_6()
   andi $t2, $t0, 0x000000ff # just pos
 
-  andi $t3, $t1, 0x00000001  # xyZ
-  andi $t4, $t1, 0x00000002  # xYz
-  andi $t5, $t1, 0x00000004  # Xyz
+  andi $t3, $v0, 0x00000001  # xyZ
+  andi $t4, $v0, 0x00000002  # xYz
+  andi $t5, $v0, 0x00000004  # Xyz
 
   srl $t4, $t4, 1
   srl $t5, $t5, 2
@@ -269,15 +311,15 @@ new_triple:
 
   save()
 
-  random_num_1_6($t0)
+  random_num_1_6()
 
-  addi $t0, $t0, 20
-  addi $t1, $t0, 16
-  addi $t2, $t1, 16
+  addi $s0, $v0 20
+  addi $s1, $s0, 16
+  addi $s2, $s1, 16
 
-  random_pixel($t0)
-  random_pixel($t1)
-  random_pixel($t2)
+  random_pixel($s0)
+  random_pixel($s1)
+  random_pixel($s2)
 
   return()
 

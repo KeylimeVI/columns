@@ -43,7 +43,7 @@ ADDR_KBRD:
 ##############################################################################
 
 .macro save()
-    addi $sp,$sp,-52
+    addi $sp,$sp,-56
     sw $a0,0($sp)
     sw $a1,4($sp)
     sw $a2,8($sp)
@@ -76,8 +76,9 @@ ADDR_KBRD:
     lw $s7,44($sp)
     lw $fp,48($sp)
     lw $ra,52($sp)
-    addi $sp,$sp,52
+    addi $sp,$sp,56
     jr $ra
+    nop
 .end_macro
 
 .macro return()
@@ -95,8 +96,9 @@ ADDR_KBRD:
     lw $s7,44($sp)
     lw $fp,48($sp)
     lw $ra,52($sp)
-    addi $sp,$sp,52
+    addi $sp,$sp,56
     jr $ra
+    nop
 .end_macro
 
 
@@ -110,6 +112,16 @@ ADDR_KBRD:
   addi $sp, $sp, 4
 .end_macro
 
+.macro sleep(%ms)
+    push($v0)
+    push($a0)
+    li $v0, 32
+    li $a0, %ms
+    syscall
+    pop($a0)
+    pop($v0)
+.end_macro
+
 .macro draw_pixel(%pixel)
     push($a0)
     li $a0, %pixel
@@ -118,13 +130,10 @@ ADDR_KBRD:
 .end_macro
 
 .macro get_pixel(%source)
-    push($t0)
     push($a0)
     move $a0, %source
     jal get_pixel_func
-    move $v0, $t0
     pop($a0)
-    pop($t0)
 .end_macro
 
 .macro move_pixel_down_1(%pixel)
@@ -174,9 +183,8 @@ ADDR_KBRD:
 
 .macro is_empty(%pixel)     # (pixel) -> v0: 0 or  x >= 1
   push($t0)
-  andi $t0, %pixel, 0xffffff00
-  srl $v0, $t0, 8
-  slti $v0, $v0, 1
+  srl $t0, %pixel, 8      # extract RRGGBB
+  seq $v0, $t0, $zero     # v0 = 1 if RRGGBB == 0
   pop($t0)
 .end_macro
 
@@ -188,28 +196,85 @@ ADDR_KBRD:
     skip:
 .end_macro
 
+.macro if_else(%cond, %then, %else)
+    blez %cond, else
+    nop
+    jal %then
+    nop
+    j skip
+    else:
+    nop
+    jal %else
+    nop
+    skip:
+.end_macro
+
 .macro for(%n, %func)
-    push($s0)
-    push($s1)
-    move $s0, $zero
-    move $s1, %n
+    push($s5)
+    push($s6)
+    move $s5, $zero
+    move $s6, %n
     loop_block:
-    beq $s0, $s1, finish_loop
-    addiu $s0, $s0, 1
+    beq $s5, $s6, finish_loop
+    addiu $s5, $s5, 1
     nop
     jal %func
     nop
     j loop_block
     finish_loop:
-    pop($s1)
-    pop($s0)
+    pop($s6)
+    pop($s5)
+.end_macro
+
+.macro for_n_with_index(%n, %func)  # func: (a0: current index) -> func(a0), n times
+    push($s5)
+    push($s6)
+    push($a0)
+    move $s5, $zero
+    li $s6, %n
+    loop_block:
+    beq $s5, $s6, finish_loop
+    addiu $s5, $s5, 1
+    move $a0, $s5
+    nop
+    jal %func
+    nop
+    j loop_block
+    finish_loop:
+    pop($a0)
+    pop($s6)
+    pop($s5)
 .end_macro
 
 .macro for_n(%n, %func)
-    push($s2)
-    li $s2, %n
-    for($s2, %func)
-    pop($s2)
+    push($s7)
+    li $s7, %n
+    for($s7, %func)
+    pop($s7)
+.end_macro
+
+.macro feed_forward(%n, %initial_reg, %func)  # func: (a0: T) -> (v0: T), feeds forward previous output as next input
+    push($s5)
+    push($s6)
+    push($a0)
+    move $s5, $zero
+    li $s6, %n
+    nop
+    loop_block:
+    bge $s5, $s6, finish_loop
+    nop
+    addiu $s5, $s5, 1
+    move $a0, %initial_reg
+    nop
+    jal %func
+    nop
+    move %initial_reg, $v0
+    j loop_block
+    nop
+    finish_loop:
+    pop($a0)
+    pop($s6)
+    pop($s5)
 .end_macro
 
 .macro position_equal(%p1, %p2)     # -> v0: bool
@@ -228,11 +293,19 @@ ADDR_KBRD:
 main:
 
   jal setup
-
-  jal new_triple
   
-  li $a0, 1
-  jal drop_func
+  draw_pixel(0xff00ff15)
+  draw_pixel(0xffff0045)
+  draw_pixel(0x0000ff65)
+  draw_pixel(0xff0000d5)
+  
+  draw_pixel(0xff00ff38)
+
+  draw_pixel(0xffff0068)
+  
+  draw_pixel(0xffff008a)
+
+  jal game_loop
     
   jal exit
 
@@ -241,43 +314,39 @@ game_loop:
     # 1b. Check which key has been pressed
     # 2a. Check for collisions
 	# 2b. Update locations (capsules)
+	for_n_with_index(6, drop_one_row)
 	# 3. Draw the screen
 	# 4. Sleep
+	sleep(1000)
 
     # 5. Go back to Step 1
-    #j game_loop
+    j game_loop
 
-drop_func:   #(a0: column [1..6]) -> drops an entire col as far as possible
+
+drop_one_row:   #(a0: column [1..6]) -> drops an entire col by one row
     save()
+    addiu $t0, $a0, 0xd4
     
-    addi $t0, $a0, 4
-    addi $s0, $t0, 16 
-    get_pixel($s0)
-    move $s0, $v0  # s0 = top pixel
-    move $s1, $s0   # s1 = current pixel
-    j check_next_pixel
+    get_pixel($t0)
     
-    check_next_pixel:
+    move $s1, $v0
+    
+    feed_forward(13, $s1, shift_pixel)
+    
+    return()
+    
+    shift_pixel:    # (a0: pixel) -> v0: next pixel up { shift a0 down 1 }
+        save()
+
+        nop
+        addiu $s1, $a0, 16  # s1 = the pixel below
+        
         get_pixel($s1)
-        move $s1, $v0   # s1 = current pixel
-        subiu $s2, $s1, 16  # s2 = current sub-pixel
-        is_empty($s1)
-        if($v0, shift_pixels)
-        is_not_empty($s1)
-        if($v0, increment_row)
-    shift_pixels:
-        move_pixel_down_1($s2)
-        position_equal($s0, $s2)
-        if($v0, increment_row)
-        subiu $s2, $s2, 16
-        j shift_pixels
-    increment_row:
-        addi $s1, $s1, 16
-        li $t1, 0xffffff00
-        and $t0, $s1, $t1
-        seq $t2, $t0, $t1
-        if($t2, end_loop)
-        j check_next_pixel
+        
+        is_empty($v0)
+        if($v0, move_pixel_down_1_func)
+        subiu $v0, $a0, 16
+        return()
 
         
         
@@ -301,16 +370,18 @@ get_pixel_func:  # ($a0: yx) -> $v0: pixel at that location
     addu $t1, $t0, $t4   # &colour = bitmap addr + yx * 4
     lw $t7 0($t1)   # t7 = *colour
     sll $t3, $t7, 8   # t3 = *colour << 8
-    andi $t5, $a0, 0x000000ff   # t5 = yx
-    addu $v0, $t3, $t5   # t7 colour + t5 pos
+    #andi $t5, $a0, 0x000000ff   # t5 = yx
+    or $v0, $t3, $a0   # t7 colour + t5 pos
     return()
 
 move_pixel_func: # ($a0: yx, $a1: y'x') -> Move pixel at a0 to a1
 
     save()
+    
+    andi $a0, $a0, 0x000000ff
 
     jal get_pixel_func
-    andi $a0, $a0, 0x000000ff
+
     move $s0, $v0
     
     jal draw_pixel_func
@@ -323,6 +394,11 @@ move_pixel_func: # ($a0: yx, $a1: y'x') -> Move pixel at a0 to a1
 
     return()
 
+move_pixel_down_1_func:     # (a0: pixel) -> move down 1
+  save()
+  addi $a1, $a0, 16
+  jal move_pixel_func
+  return()
 
 random_pixel_at: # (a0: pos) -> t0: pixel with random color
 
@@ -356,7 +432,7 @@ random_pixel_at: # (a0: pos) -> t0: pixel with random color
 
   return()
 
-new_triple:
+new_triple:     # -> t0, t1, t2: the three active pixels
 
   save()
 
@@ -369,7 +445,11 @@ new_triple:
   random_pixel($s0)
   random_pixel($s1)
   random_pixel($s2)
-
+  
+  move $t0, $s0
+  move $t1, $s1
+  move $t2, $s2
+  
   return()
 
 
@@ -377,12 +457,6 @@ new_triple:
 exit:
     li $v0, 10              # terminate the program gracefully
     syscall
-
-tick:
-    li $v0, 32
-    li $a0, 5000
-    syscall
-
 
 setup:
   save()
@@ -410,17 +484,17 @@ draw_line_x:   # (a0: init, a1: dest)
 
   andi $a0, $a0, 0x000000ff
   andi $t1, $a1, 0x000000ff
-  la $t2, loop
-  la $t8, end_loop
+  la $t2, loop_line_x
+  la $t8, end_loop_line_x
 
-  loop:
-    bgt $a0, $t1, end_loop
+  loop_line_x:
+    bgt $a0, $t1, end_loop_line_x
     ori $a0, $a0, 0xffffff00
     jal draw_pixel_func
     andi $a0, $a0, 0x000000ff
     addiu $a0, $a0, 1
-    j loop
-  end_loop:
+    j loop_line_x
+  end_loop_line_x:
     return()
 
 draw_line_y:   # (a0: init, a1: dest)
@@ -433,7 +507,7 @@ draw_line_y:   # (a0: init, a1: dest)
   la $t8, end_loop_line_y
 
   loop_line_y:
-    bgt $a0, $t1, end_loop
+    bgt $a0, $t1, end_loop_line_x
     ori $a0, $a0, 0xffffff00
     jal draw_pixel_func
     andi $a0, $a0, 0x000000ff
@@ -442,9 +516,13 @@ draw_line_y:   # (a0: init, a1: dest)
   end_loop_line_y:
     return()
 
-.macro colour_only(%pixel)
-  andi %pixel, %pixel, 0xffffff00
-.end_macro
+
+key_pressed_func:   # -> v0: bool
+    push($t0)
+    lw $t0, ADDR_KBRD
+    sgt $v0, $t0, $zero
+    pop($t0)
+
 
 
 

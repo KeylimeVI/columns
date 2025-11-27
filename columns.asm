@@ -33,6 +33,9 @@ ADDR_DSPL:
 # The address of the keyboard. Don't forget to connect it!
 ADDR_KBRD:
     .word 0xffff0000
+    
+ADDR_KEY:
+    .word 0xffff0004
 
 ##############################################################################
 # Mutable Data
@@ -196,6 +199,17 @@ ADDR_KBRD:
     skip:
 .end_macro
 
+.macro if_equal(%reg, %const, %func)
+    push($t0)   
+    li $t0, %const
+    bne %reg, $t0, skip
+    nop
+    jal %func
+    nop
+    skip:
+    pop($t0)
+.end_macro
+
 .macro if_else(%cond, %then, %else)
     blez %cond, else
     nop
@@ -285,6 +299,28 @@ ADDR_KBRD:
     seq $v0, $t1, $t2
 .end_macro
 
+.macro move_pixel_left(%pixel)
+    push($a1)
+    push($a0)
+    subiu $a1, %pixel, 1
+    move $a0, %pixel
+    jal move_pixel_func
+    
+    pop($a0)
+    pop($a1)
+.end_macro
+
+.macro move_pixel_right(%pixel)
+    push($a1)
+    push($a0)
+    addi $a1, %pixel, 1
+    move $a0, %pixel
+    jal move_pixel_func
+    
+    pop($a0)
+    pop($a1)
+.end_macro
+
 
 	.text
 	.globl main
@@ -294,16 +330,13 @@ main:
 
   jal setup
   
-  draw_pixel(0xff00ff15)
-  draw_pixel(0xffff0045)
-  draw_pixel(0x0000ff65)
-  draw_pixel(0xff0000d5)
+  lw $s6, ADDR_KBRD
   
-  draw_pixel(0xff00ff38)
-
-  draw_pixel(0xffff0068)
+  li $s3, 0
   
-  draw_pixel(0xffff008a)
+  li $s0, 0x35  # s0 = bottom active pixel
+  
+  sleep(500)
 
   jal game_loop
     
@@ -312,16 +345,71 @@ main:
 game_loop:
     # 1a. Check if key has been pressed
     # 1b. Check which key has been pressed
+
+    lw $s5, 0($s6)
+    beq $s5, 1, check_key
+    
+    
     # 2a. Check for collisions
 	# 2b. Update locations (capsules)
-	for_n_with_index(6, drop_one_row)
+	
+
+	beq $s3, 5, drop
+	addi $s3, $s3, 1
+	
 	# 3. Draw the screen
 	# 4. Sleep
-	sleep(1000)
+	sleep(100)
 
     # 5. Go back to Step 1
     j game_loop
+    
+check_key:
+    lw $s4, 4($s6)
+    move $v0, $s0
+    move $a0, $s0
+    
+    li   $t0, 0x61       # 'a'
+    beq  $s4, $t0, a_pressed
+    nop
 
+    li   $t0, 0x64       # 'd'
+    beq  $s4, $t0, d_pressed
+    nop
+    
+    move $s0, $v0
+    j game_loop
+
+drop:
+    move $a0, $s0
+	jal next_active_pixel
+	move $s0, $v0
+	
+	for_n_with_index(6, drop_one_row)
+	
+	addi $s0, $s0, 16
+	get_pixel($s0)
+	move $s0, $v0
+	li $s3, 0
+	j game_loop
+
+next_active_pixel:   # (a0: current bottom active pixel) -> v0: next bottom active pixel
+    save()
+    
+
+    
+    move $s0, $a0
+    addi $a0, $a0, 16
+    get_pixel($a0)
+    move $s2, $v0
+    is_not_empty($s2)
+    move $s1, $v0
+    move $v0, $s0
+    if($s1, new_triple)
+    
+    return_val($v0)
+
+    
 
 drop_one_row:   #(a0: column [1..6]) -> drops an entire col by one row
     save()
@@ -353,6 +441,7 @@ drop_one_row:   #(a0: column [1..6]) -> drops an entire col by one row
 
 # Pixel format: RRGGBBYX
 draw_pixel_func:     # ($a0: Pixel) -> stores to bitmap
+    save()
     lw $t4, ADDR_DSPL
     andi $t0, $a0, 0x000000ff #just position
     sll $t5, $t0, 2   # position times 4
@@ -360,7 +449,7 @@ draw_pixel_func:     # ($a0: Pixel) -> stores to bitmap
     srl $t7, $t3, 8
     addu $t6, $t4, $t5
     sw $t7,0($t6)   #write pixel
-    jr $ra
+    return()
 
 get_pixel_func:  # ($a0: yx) -> $v0: pixel at that location
     save()
@@ -400,7 +489,7 @@ move_pixel_down_1_func:     # (a0: pixel) -> move down 1
   jal move_pixel_func
   return()
 
-random_pixel_at: # (a0: pos) -> t0: pixel with random color
+random_pixel_at: # (a0: pos) -> pixel with random color
 
   save()
 
@@ -432,7 +521,7 @@ random_pixel_at: # (a0: pos) -> t0: pixel with random color
 
   return()
 
-new_triple:     # -> t0, t1, t2: the three active pixels
+new_triple:     # -> v0: bottom pixel of the triple
 
   save()
 
@@ -446,10 +535,7 @@ new_triple:     # -> t0, t1, t2: the three active pixels
   random_pixel($s1)
   random_pixel($s2)
   
-  move $t0, $s0
-  move $t1, $s1
-  move $t2, $s2
-  
+  get_pixel($s2)
   return()
 
 
@@ -475,6 +561,13 @@ setup:
   li $a0, 0x0000000b
   li $a1, 0x000000fc
   jal draw_line_y
+  
+  li $t0, 0x15
+  random_pixel($t0)
+  li $t0, 0x25
+  random_pixel($t0)
+  li $t0, 0x35
+  random_pixel($t0)
 
   return()
 
@@ -517,18 +610,113 @@ draw_line_y:   # (a0: init, a1: dest)
     return()
 
 
-key_pressed_func:   # -> v0: bool
-    push($t0)
-    lw $t0, ADDR_KBRD
-    sgt $v0, $t0, $zero
-    pop($t0)
+key_pressed_func:   # -> v0: ASCII key or 0
+    save()
+    lw $s7, ADDR_KBRD
+    lw $t0, 0($s7)
+    if_else($t0, which_key, zero_func)
+    return_val($v0)
 
+which_key:  # -> v0
+    save()
+    lw $s7, ADDR_KEY
+    lw $v0, 0($s7)
+    return()
 
+a_pressed:  # a0: active pixel -> $v0: new active pixel
+    save()
+    move $t8, $a0
+    push($t8)
+    jal no_collision_left
+    pop($t8)
+    if($v0, move_a)
+    
+    return_val($t8)
 
+move_a:
+    save()
+    move_pixel_left($a0)
+    subi $s2, $a0, 16
+    move_pixel_left($s2)
+    subi $s3, $a0, 32
+    move_pixel_left($s3)
+    subi $a0, $a0, 1
+    move $t8, $a0
+    return()
 
+d_pressed:  # a0: active pixel -> $v0: new active pixel
+    save()
+    move $t9, $a0
+    push($t9)
+    jal no_collision_right
+    pop($t9)
+    if($v0, move_d)
+    
+    return_val($t9)
 
+move_d:
+    save()
+    move_pixel_right($a0)
+    subi $s2, $a0, 16
+    move_pixel_right($s2)
+    subi $s3, $a0, 32
+    move_pixel_right($s3)
+    addi $a0, $a0, 1
+    move $t9, $a0
+    return()
 
+zero_func:
+    save()
+    return_val($zero)
 
+no_collision_left:   # a0: active pixel -> v0: bool
+    save()
+    move $s0, $a0
+    
+    subiu $s1, $s0, 1
+    subiu $s2, $s0, 17
+    subiu $s3, $s0, 33
+    
+    li $s4, 1
+    
+    get_pixel($s1)
+    is_empty($v0)
+    mul $s4, $s4, $v0
+
+    get_pixel($s2)
+    is_empty($v0)
+    mul $s4, $s4, $v0
+    
+    get_pixel($s3)
+    is_empty($v0)
+    mul $s4, $s4, $v0
+    
+    return_val($s4)
+
+    
+no_collision_right:     # a0: active pixel -> v0: bool
+    save()
+    move $s0, $a0
+    
+    addi $s1, $s0, 1
+    subiu $s2, $s0, 15
+    subiu $s3, $s0, 31
+    
+    li $s4, 1
+    
+    get_pixel($s1)
+    is_empty($v0)
+    mul $s4, $s4, $v0
+
+    get_pixel($s2)
+    is_empty($v0)
+    mul $s4, $s4, $v0
+    
+    get_pixel($s3)
+    is_empty($v0)
+    mul $s4, $s4, $v0
+    
+    return_val($s4)
 
 
 
